@@ -24,6 +24,10 @@
 #include "hw/net/can/esp32_twai.h"
 #include "hw/sd/dwc_sdmmc.h"
 #include "hw/display/esp_rgb.h"
+#include "hw/adc/esp32_adc.h"
+
+#define TYPE_ESP32_SOC "xtensa.esp32"
+#define TYPE_ESP32_MACHINE MACHINE_TYPE_NAME("esp32")
 
 typedef struct Esp32SocState {
     /*< private >*/
@@ -49,8 +53,8 @@ typedef struct Esp32SocState {
     Esp32LEDCState ledc;
     Esp32EfuseState efuse;
     Esp32FlashEncryptionState flash_enc;
-    ESPRgbState rgb;
 
+    Esp32AdcState adc;
     DWCSDMMCState sdmmc;
     DeviceState *eth;
 
@@ -61,3 +65,15 @@ typedef struct Esp32SocState {
 
     uint32_t requested_reset;
 } Esp32SocState;
+
+
+struct Esp32MachineState {
+    MachineState parent;
+
+    Esp32SocState esp32;
+    DeviceState *flash_dev;
+};
+
+ram_addr_t esp32_fixup_ram_size(ram_addr_t requested_size);
+void esp32_machine_init(MachineState *machine);
+

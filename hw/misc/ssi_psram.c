@@ -16,6 +16,7 @@
 #include "qemu/error-report.h"
 #include "hw/qdev-properties.h"
 #include "hw/misc/ssi_psram.h"
+#include "hw/ssi/esp32_spi.h"
 
 #define PSRAM_WARNING   0
 
@@ -444,6 +445,13 @@ static uint32_t psram_transfer(SSIPeripheral *dev, uint32_t value)
     s->state = next_state;
     return data;
 }
+
+void psram_link_bus(DeviceState *s, Esp32SpiState *bus)
+{
+    SsiPsramState *state = SSI_PSRAM(s);
+    state->bus = bus;
+}
+
 
 static int psram_cs(SSIPeripheral *ss, bool select)
 {

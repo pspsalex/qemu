@@ -10,3 +10,6 @@ system_ss.add(when: 'CONFIG_VIRTIO_INPUT', if_true: files('virtio-input-hid.c'))
 system_ss.add(when: 'CONFIG_VIRTIO_INPUT_HOST', if_true: files('virtio-input-host.c'))
 
 system_ss.add(when: 'CONFIG_LASIPS2', if_true: files('lasips2.c'))
+
+system_ss.add(when: 'CONFIG_GT911', if_true: files('gt911.c'))
+system_ss.add(when: 'CONFIG_M5PAPER_BTN', if_true: files('m5paper-btn.c'))

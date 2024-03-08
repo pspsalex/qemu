@@ -55,6 +55,7 @@
  * It is possible that Allwinner SD Host is based on an earlier version of Designware SD/MMC IP,
  * or is heavily inspired by it.
  */
+#define DWC_SDMMC_DEBUG
 
 #ifdef DWC_SDMMC_DEBUG
 #define DEBUG(...) qemu_log(__VA_ARGS__)

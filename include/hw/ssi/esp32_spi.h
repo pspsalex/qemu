@@ -30,7 +30,15 @@ typedef struct Esp32SpiState {
     uint32_t mosi_dlen_reg;
     uint32_t miso_dlen_reg;
     uint32_t pin_reg;
+    uint32_t clk_reg;
+    uint32_t dma_outlink_reg;
+    uint32_t dma_conf_reg;
     uint32_t data_reg[ESP32_SPI_BUF_WORDS];
+
+    /* Keep a pointer to the SoC DRAM */
+    MemoryRegion *soc_mr;
+    AddressSpace dma_as;
+
 } Esp32SpiState;
 
 
@@ -59,12 +67,18 @@ REG32(SPI_STATUS, 0x10)
 
 REG32(SPI_CTRL1, 0x0c)
 REG32(SPI_CTRL2, 0x14)
+
+REG32(SPI_CLOCK, 0x18)
+    FIELD(SPI_CLOCK, EQU_SYSCLK, 31, 1)
+
 REG32(SPI_USER, 0x1C)
     FIELD(SPI_USER, COMMAND, 31, 1)
     FIELD(SPI_USER, ADDR, 30, 1)
     FIELD(SPI_USER, DUMMY, 29, 1)
     FIELD(SPI_USER, MISO, 28, 1)
     FIELD(SPI_USER, MOSI, 27, 1)
+    FIELD(SPI_USER, MOSI_HIGHPART, 25, 1)
+    FIELD(SPI_USER, MISO_HIGHPART, 24, 1)
     FIELD(SPI_USER, SIO, 16, 1)
     FIELD(SPI_USER, DOUTDIN, 0, 1)
 
@@ -90,5 +104,15 @@ REG32(SPI_EXT0, 0xF0)
 REG32(SPI_EXT1, 0xF4)
 REG32(SPI_EXT2, 0xF8)
 REG32(SPI_EXT3, 0xFC)
+
+
+REG32(SPI_DMA_OUT_LINK, 0x104)
+    FIELD(SPI_DMA_OUT_LINK, OUTLINK_ADDR, 0, 20)
+    FIELD(SPI_DMA_OUT_LINK, OUTLINK_STOP, 28, 1)
+    FIELD(SPI_DMA_OUT_LINK, OUTLINK_START, 29, 1)
+    FIELD(SPI_DMA_OUT_LINK, OUTLINK_RESTART, 30, 1)
+
+REG32(SPI_DMA_CONF, 0x100)
+
 
 
