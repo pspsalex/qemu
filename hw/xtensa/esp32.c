@@ -38,7 +38,6 @@
 #include "net/net.h"
 #include "elf.h"
 
-#define TYPE_ESP32_SOC "xtensa.esp32"
 #define ESP32_SOC(obj) OBJECT_CHECK(Esp32SocState, (obj), TYPE_ESP32_SOC)
 
 #define TYPE_ESP32_CPU XTENSA_CPU_TYPE_NAME("esp32")
@@ -70,9 +69,7 @@ static const struct MemmapEntry {
     [ESP32_MEMREGION_ICACHE1] = { 0x40078000, 0x8000 },
     [ESP32_MEMREGION_RTCSLOW] = { 0x50000000, 0x2000 },
     [ESP32_MEMREGION_RTCFAST_I] = { 0x400C0000, 0x2000 },
-    [ESP32_MEMREGION_RTCFAST_D] = { 0x3ff80000, 0x2000 },
-    /* Virtual Framebuffer, used for the graphical interface */
-    [ESP32_MEMREGION_FRAMEBUF] = { 0x20000000, ESP_RGB_MAX_VRAM_SIZE }
+    [ESP32_MEMREGION_RTCFAST_D] = { 0x3ff80000, 0x2000 }
 };
 
 
@@ -188,8 +185,6 @@ static void esp32_soc_reset(DeviceState *dev)
         if (s->eth) {
             device_cold_reset(s->eth);
         }
-
-        device_cold_reset(DEVICE(&s->rgb));
     }
     if (s->requested_reset & ESP32_SOC_RESET_PROCPU) {
         xtensa_select_static_vectors(&s->cpu[0].env, s->rtc_cntl.stat_vector_sel[0]);
@@ -414,6 +409,9 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     qdev_realize(DEVICE(&s->gpio), &s->periph_bus, &error_fatal);
     esp32_soc_add_periph_device(sys_mem, &s->gpio, DR_REG_GPIO_BASE);
 
+    qdev_realize(DEVICE(&s->adc), &s->periph_bus, &error_fatal);
+    esp32_soc_add_periph_device(sys_mem, &s->adc, 0x3ff48800);
+
     for (int i = 0; i < ESP32_UART_COUNT; ++i) {
         const hwaddr uart_base[] = {DR_REG_UART_BASE, DR_REG_UART1_BASE, DR_REG_UART2_BASE};
         qdev_realize(DEVICE(&s->uart[i]), &s->periph_bus, &error_fatal);
@@ -453,10 +451,14 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     }
     s->timg[0].wdt_en_at_reset = true;
 
+
+
     for (int i = 0; i < ESP32_SPI_COUNT; ++i) {
         const hwaddr spi_base[] = {
             DR_REG_SPI0_BASE, DR_REG_SPI1_BASE, DR_REG_SPI2_BASE, DR_REG_SPI3_BASE
         };
+        object_property_set_link(OBJECT(&s->spi[i]), "soc_mr", OBJECT(dram),
+                                 &error_abort);
         qdev_realize(DEVICE(&s->spi[i]), &s->periph_bus, &error_fatal);
 
         esp32_soc_add_periph_device(sys_mem, &s->spi[i], spi_base[i]);
@@ -499,12 +501,6 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     esp32_soc_add_periph_device(sys_mem, &s->sdmmc, DR_REG_SDMMC_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(&s->sdmmc), 0,
                        qdev_get_gpio_in(intmatrix_dev, ETS_SDIO_HOST_INTR_SOURCE));
-
-    /* Provide internal RAM MemoryRegion to the RGB display */
-    s->rgb.intram = dram;
-    qdev_realize(DEVICE(&s->rgb), &s->periph_bus, &error_abort);
-    esp32_soc_add_periph_device(sys_mem, &s->rgb, DR_REG_FRAMEBUF_BASE);
-    memory_region_add_subregion_overlap(sys_mem, esp32_memmap[ESP32_MEMREGION_FRAMEBUF].base, &s->rgb.vram, 0);
 
     esp32_soc_add_unimp_device(sys_mem, "esp32.analog", DR_REG_ANA_BASE, 0x1000);
     esp32_soc_add_unimp_device(sys_mem, "esp32.rtcio", DR_REG_RTCIO_BASE, 0x400);
@@ -588,6 +584,8 @@ static void esp32_soc_init(Object *obj)
 
     object_initialize_child(obj, "gpio", &s->gpio, TYPE_ESP32_GPIO);
 
+    object_initialize_child(obj, "adc", &s->adc, TYPE_ESP32_ADC);
+
     object_initialize_child(obj, "dport", &s->dport, TYPE_ESP32_DPORT);
 
     object_initialize_child(obj, "intmatrix", &s->intmatrix, TYPE_ESP32_INTMATRIX);
@@ -631,8 +629,6 @@ static void esp32_soc_init(Object *obj)
     object_initialize_child(obj, "flash_enc", &s->flash_enc, TYPE_ESP32_FLASH_ENCRYPTION);
 
     object_initialize_child(obj, "sdmmc", &s->sdmmc, TYPE_DWC_SDMMC);
-
-    object_initialize_child(obj, "rgb", &s->rgb, TYPE_ESP_RGB);
 
     qdev_init_gpio_in_named(DEVICE(s), esp32_dig_reset, ESP32_RTC_DIG_RESET_GPIO, 1);
     qdev_init_gpio_in_named(DEVICE(s), esp32_cpu_reset, ESP32_RTC_CPU_RESET_GPIO, ESP32_CPU_COUNT);
@@ -678,13 +674,6 @@ static uint64_t translate_phys_addr(void *opaque, uint64_t addr)
 }
 
 
-struct Esp32MachineState {
-    MachineState parent;
-
-    Esp32SocState esp32;
-    DeviceState *flash_dev;
-};
-#define TYPE_ESP32_MACHINE MACHINE_TYPE_NAME("esp32")
 
 OBJECT_DECLARE_SIMPLE_TYPE(Esp32MachineState, ESP32_MACHINE)
 
@@ -725,6 +714,7 @@ static void esp32_machine_init_psram(Esp32SocState *ss, uint32_t size_mbytes)
     qdev_realize_and_unref(psram, spi_bus, &error_fatal);
     qdev_connect_gpio_out_named(spi_master, SSI_GPIO_CS, 1,
                                 qdev_get_gpio_in_named(psram, SSI_GPIO_CS, 0));
+    psram_link_bus(psram, &(ss->spi[1]));
 }
 
 static void esp32_machine_init_i2c(Esp32SocState *s)
@@ -739,7 +729,8 @@ static void esp32_machine_init_i2c(Esp32SocState *s)
     DeviceState *i2c_master = DEVICE(&s->i2c[0]);
     I2CBus* i2c_bus = I2C_BUS(qdev_get_child_bus(i2c_master, "i2c"));
     I2CSlave* tmp105 = i2c_slave_create_simple(i2c_bus, "tmp105", 0x48);
-    object_property_set_int(OBJECT(tmp105), "temperature", 25 * 1000, &error_fatal);
+    object_property_set_int(OBJECT(tmp105), "temperature", 25 * 1000,
+                            &error_fatal);
 }
 
 static void esp32_machine_init_openeth(Esp32SocState *ss)
@@ -779,7 +770,7 @@ static void esp32_machine_init_sd(Esp32SocState *ss)
     }
 }
 
-static void esp32_machine_init(MachineState *machine)
+void esp32_machine_init(MachineState *machine)
 {
     BlockBackend* blk = NULL;
     DriveInfo *dinfo = drive_get(IF_MTD, 0, 0);
@@ -790,7 +781,7 @@ static void esp32_machine_init(MachineState *machine)
         qemu_log("Not initializing SPI Flash\n");
     }
 
-    Esp32MachineState *ms = ESP32_MACHINE(machine);
+    Esp32MachineState *ms = (Esp32MachineState *)(machine);
     object_initialize_child(OBJECT(ms), "soc", &ms->esp32, TYPE_ESP32_SOC);
     Esp32SocState *ss = ESP32_SOC(&ms->esp32);
 
@@ -893,7 +884,7 @@ static void esp32_machine_init(MachineState *machine)
     }
 }
 
-static ram_addr_t esp32_fixup_ram_size(ram_addr_t requested_size)
+ram_addr_t esp32_fixup_ram_size(ram_addr_t requested_size)
 {
     ram_addr_t size;
     if (requested_size == 0) {

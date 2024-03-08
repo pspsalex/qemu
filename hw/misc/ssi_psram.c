@@ -16,6 +16,7 @@
 #include "qemu/error-report.h"
 #include "hw/qdev-properties.h"
 #include "hw/misc/ssi_psram.h"
+#include "hw/ssi/esp32_spi.h"
 
 #define CMD_READ_ID 0x9f
 #define PSRAM_ID_MFG 0x0d
@@ -70,17 +71,29 @@ static void psram_write(SsiPsramState *s, uint32_t value)
     s->byte_count++;
 }
 
+void psram_link_bus(DeviceState *s, Esp32SpiState *bus)
+{
+    SsiPsramState *state = SSI_PSRAM(s);
+    state->bus = bus;
+}
+
 static uint32_t psram_transfer(SSIPeripheral *dev, uint32_t value)
 {
     SsiPsramState *s = SSI_PSRAM(dev);
+
+    if ((s->bus == NULL) || (s->bus->clk_reg & 0x80000000u)) {
+        s->dummy = 0;
+    } else {
+        s->dummy = 1;
+    }
     psram_write(s, value);
-    return psram_read(s);
+    uint32_t r = psram_read(s);
+    return r;
 }
 
 static int psram_cs(SSIPeripheral *ss, bool select)
 {
     SsiPsramState *s = SSI_PSRAM(ss);
-
     if (!select) {
         s->byte_count = 0;
         s->command = -1;

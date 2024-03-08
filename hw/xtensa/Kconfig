@@ -31,5 +31,14 @@ config XTENSA_ESP32S3
     select OPENCORES_ETH
     select DWC_SDMMC
     select TMP105
+    
+config M5PAPER
+    bool
+    select XTENSA_ESP32
+    select IT8951E
+    select GT911
+    select SSI_SD
+    select ESP32_ADC
+    select M5PAPER_BTN
 
 

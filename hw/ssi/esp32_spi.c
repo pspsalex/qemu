@@ -20,7 +20,7 @@
 #include "hw/ssi/ssi.h"
 #include "hw/ssi/esp32_spi.h"
 #include "hw/misc/esp32_flash_enc.h"
-
+#include "sysemu/dma.h"
 
 
 enum {
@@ -41,7 +41,32 @@ enum {
 
 #define ESP32_SPI_REG_SIZE    0x1000
 
+/* #define DEBUG_ESP32_SPI 1 */
+
+#ifdef DEBUG_ESP32_SPI
+#define DPRINTF(fmt, ...) \
+do { printf("esp32_spi: " fmt , ## __VA_ARGS__); } while (0)
+#define BADF(fmt, ...) \
+do { \
+    fprintf(stderr, "esp32_spi: error: " fmt , ## __VA_ARGS__); abort(); \
+} while (0)
+#else
+#define DPRINTF(fmt, ...) do {} while (0)
+#define BADF(fmt, ...) \
+do { fprintf(stderr, "esp32_spi: error: " fmt , ## __VA_ARGS__); } while (0)
+#endif
+
+
 static void esp32_spi_do_command(Esp32SpiState* state, uint32_t cmd_reg);
+
+/*
+ * Convert one of the hardware "bitlen" registers to a byte count
+ * bitlen registers hold number of bits, minus one
+ */
+static inline int bitlen_to_bytes(uint32_t val)
+{
+    return (val + 1 + 7) / 8;
+}
 
 static uint64_t esp32_spi_read(void *opaque, hwaddr addr, unsigned int size)
 {
@@ -61,10 +86,12 @@ static uint64_t esp32_spi_read(void *opaque, hwaddr addr, unsigned int size)
         r = s->ctrl1_reg;
         break;
     case A_SPI_CTRL2:
-        r = s->ctrl2_reg;
         break;
     case A_SPI_USER:
         r = s->user_reg;
+        break;
+    case A_SPI_CLOCK:
+        r = s->clk_reg;
         break;
     case A_SPI_USER1:
         r = s->user1_reg;
@@ -90,8 +117,20 @@ static uint64_t esp32_spi_read(void *opaque, hwaddr addr, unsigned int size)
     case A_SPI_SLAVE:
         r = BIT(R_SPI_SLAVE_TRANS_DONE_SHIFT) | BIT(R_SPI_SLAVE_TRANS_INTEN_SHIFT);
         break;
+    case A_SPI_CMD:
+        break;
+    case A_SPI_DMA_OUT_LINK:
+        r = s->dma_outlink_reg ;
+        break;
+    case A_SPI_DMA_CONF:
+        r = s->dma_conf_reg;
+        break;
+    default:
+        break;
+
     }
-    return r;
+
+   return r;
 }
 
 static void esp32_spi_write(void *opaque, hwaddr addr,
@@ -120,6 +159,9 @@ static void esp32_spi_write(void *opaque, hwaddr addr,
     case A_SPI_USER:
         s->user_reg = value;
         break;
+    case A_SPI_CLOCK:
+        s->clk_reg = value;
+        break;
     case A_SPI_USER1:
         s->user1_reg = value;
         break;
@@ -138,6 +180,15 @@ static void esp32_spi_write(void *opaque, hwaddr addr,
     case A_SPI_CMD:
         esp32_spi_do_command(s, value);
         break;
+
+    case A_SPI_DMA_OUT_LINK:
+        s->dma_outlink_reg = value;
+        break;
+
+    case A_SPI_DMA_CONF:
+        s->dma_conf_reg = value;
+        break;
+
     }
 }
 
@@ -157,11 +208,11 @@ static void esp32_spi_txrx_buffer(Esp32SpiState *s, void *buf, int tx_bytes, int
     uint8_t *c_buf = (uint8_t*) buf;
     for (int i = 0; i < bytes; ++i) {
         uint8_t byte = 0;
-        if (byte < tx_bytes) {
+        if (i < tx_bytes) {
             memcpy(&byte, c_buf + i, 1);
         }
         uint32_t res = ssi_transfer(s->spi, byte);
-        if (byte < rx_bytes) {
+        if (i < rx_bytes) {
             memcpy(c_buf + i, &res, 1);
         }
     }
@@ -183,11 +234,6 @@ static void esp32_spi_transaction(Esp32SpiState *s, Esp32SpiTransaction *t)
     esp32_spi_cs_set(s, 1);
 }
 
-/* Convert one of the hardware "bitlen" registers to a byte count */
-static inline int bitlen_to_bytes(uint32_t val)
-{
-    return (val + 1 + 7) / 8; /* bitlen registers hold number of bits, minus one */
-}
 
 static void maybe_encrypt_data(Esp32SpiState *s)
 {
@@ -197,6 +243,89 @@ static void maybe_encrypt_data(Esp32SpiState *s)
     }
 }
 
+
+
+/**
+ * @brief Read and write arbitrary data from and to the guest machine
+ *
+ * @param s ESP32 SPI state structure
+ * @param addr Guest machine address
+ * @param data output ptr
+ * @param len bytes to read
+ *
+ * @returns true if the transfer was a success, false else
+ */
+static bool esp32_spi_dma_read_guest(Esp32SpiState *s, uint32_t addr,
+                                     void *data, uint32_t len)
+{
+    MemTxResult res = dma_memory_read(&s->dma_as, addr, data, len,
+                                      MEMTXATTRS_UNSPECIFIED);
+    return res == MEMTX_OK;
+}
+
+typedef struct EspDmaLinkedList {
+    union {
+        struct {
+            /* Size of the buffer (mainly used in a receive transaction) */
+            uint32_t size:12;
+            /*
+             * Number of valid bytes in the buffer. In a transmit, written by
+             * software. In receive, written by hardware.
+             */
+            uint32_t length:12;
+            /* Reserved */
+            uint32_t rsvd_24:6;
+            /*
+             * Set if curent node is the last one (of the list). Set by software
+             * in a transmit transaction, set by the hardware in case of a
+             * receive transaction.
+             */
+            uint32_t suc_eof:1;
+            /*
+             * 0: CPU can access the buffer, 1: GDMA can access the buffer.
+             * Cleared automatically by hardware in a transmit descriptor. In a
+             * receive descriptor, cleared by hardware only if
+             * GDMA_OUT_AUTO_WRBACK_CHn is set to 1.
+             */
+            uint32_t owner:1;
+        };
+        uint32_t val;
+    } config;
+    uint32_t buf_addr;
+    uint32_t next_addr;
+} EspDmaLinkedList;
+
+static void esp32_spi_do_dma(Esp32SpiState *s, Esp32SpiTransaction *t)
+{
+    uint32_t descriptorAddress = FIELD_EX32(s->dma_outlink_reg,
+                                            SPI_DMA_OUT_LINK, OUTLINK_ADDR);
+
+    EspDmaLinkedList dmall;
+
+    assert(esp32_spi_dma_read_guest(s, descriptorAddress | 0x3ff00000,
+                                    &dmall, 12));
+
+    assert(dmall.next_addr == 0);
+
+    t->addr_bytes = 0;
+    t->cmd_bytes = 0;
+    t->data_tx_bytes = dmall.config.length;
+    t->data = malloc(t->data_tx_bytes);
+
+    assert(esp32_spi_dma_read_guest(s, dmall.buf_addr, t->data,
+                                    dmall.config.length));
+    esp32_spi_transaction(s, t);
+
+    free(t->data);
+
+    s->dma_outlink_reg = FIELD_DP32(s->dma_outlink_reg,
+                                    SPI_DMA_OUT_LINK, OUTLINK_START, 0);
+
+    s->dma_outlink_reg = FIELD_DP32(s->dma_outlink_reg,
+                                    SPI_DMA_OUT_LINK, OUTLINK_RESTART, 0);
+}
+
+
 static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
 {
     Esp32SpiTransaction t = {
@@ -205,7 +334,8 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
     switch (cmd_reg) {
     case R_SPI_CMD_READ_MASK:
         t.cmd = CMD_READ;
-        t.addr_bytes = bitlen_to_bytes(FIELD_EX32(s->user1_reg, SPI_USER1, ADDR_BITLEN));
+        t.addr_bytes = bitlen_to_bytes(FIELD_EX32(s->user1_reg,
+                                                  SPI_USER1, ADDR_BITLEN));
         t.addr = bswap32(s->addr_reg) >> (32 - t.addr_bytes * 8);
         t.data = &s->data_reg[0];
         t.data_rx_bytes = bitlen_to_bytes(s->miso_dlen_reg);
@@ -241,7 +371,8 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
         maybe_encrypt_data(s);
         t.cmd = CMD_PP;
         t.data = &s->data_reg[0];
-        t.addr_bytes = bitlen_to_bytes(FIELD_EX32(s->user1_reg, SPI_USER1, ADDR_BITLEN));
+        t.addr_bytes = bitlen_to_bytes(FIELD_EX32(s->user1_reg,
+                                                  SPI_USER1, ADDR_BITLEN));
         t.addr = bswap32(s->addr_reg) >> 8;
         t.data = &s->data_reg[0];
         t.data_tx_bytes = s->addr_reg >> 24;
@@ -249,13 +380,15 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
 
     case R_SPI_CMD_SE_MASK:
         t.cmd = CMD_SE;
-        t.addr_bytes = bitlen_to_bytes(FIELD_EX32(s->user1_reg, SPI_USER1, ADDR_BITLEN));
+        t.addr_bytes = bitlen_to_bytes(FIELD_EX32(s->user1_reg,
+                                                  SPI_USER1, ADDR_BITLEN));
         t.addr = bswap32(s->addr_reg) >> (32 - t.addr_bytes * 8);
         break;
 
     case R_SPI_CMD_BE_MASK:
         t.cmd = CMD_BE;
-        t.addr_bytes = bitlen_to_bytes(FIELD_EX32(s->user1_reg, SPI_USER1, ADDR_BITLEN));
+        t.addr_bytes = bitlen_to_bytes(FIELD_EX32(s->user1_reg,
+                                                  SPI_USER1, ADDR_BITLEN));
         t.addr = bswap32(s->addr_reg) >> (32 - t.addr_bytes * 8);
         break;
 
@@ -275,23 +408,47 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
 
     case R_SPI_CMD_USR_MASK:
         maybe_encrypt_data(s);
-        if (FIELD_EX32(s->user_reg, SPI_USER, COMMAND) || FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_BITLEN)) {
-            t.cmd = FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_VALUE);
-            t.cmd_bytes = bitlen_to_bytes(FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_BITLEN));
+        if (FIELD_EX32(s->dma_outlink_reg, SPI_DMA_OUT_LINK, OUTLINK_START) ||
+            FIELD_EX32(s->dma_outlink_reg, SPI_DMA_OUT_LINK, OUTLINK_START)) {
+            esp32_spi_do_dma(s, &t);
+            return;
         } else {
-            t.cmd_bytes = 0;
-        }
-        if (FIELD_EX32(s->user_reg, SPI_USER, ADDR)) {
-            t.addr_bytes = bitlen_to_bytes(FIELD_EX32(s->user1_reg, SPI_USER1, ADDR_BITLEN));
-            t.addr = bswap32(s->addr_reg);
-        }
-        if (FIELD_EX32(s->user_reg, SPI_USER, MOSI)) {
-            t.data = &s->data_reg[0];
-            t.data_tx_bytes = bitlen_to_bytes(s->mosi_dlen_reg);
-        }
-        if (FIELD_EX32(s->user_reg, SPI_USER, MISO)) {
-            t.data = &s->data_reg[0];
-            t.data_rx_bytes = bitlen_to_bytes(s->miso_dlen_reg);
+            if (FIELD_EX32(s->user_reg, SPI_USER, COMMAND) &&
+                FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_BITLEN)) {
+
+                t.cmd = FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_VALUE);
+                t.cmd_bytes = bitlen_to_bytes(FIELD_EX32(s->user2_reg,
+                                                         SPI_USER2,
+                                                         COMMAND_BITLEN));
+
+            } else {
+                t.cmd_bytes = 0;
+            }
+
+            if (FIELD_EX32(s->user_reg, SPI_USER, ADDR)) {
+
+                t.addr_bytes = bitlen_to_bytes(FIELD_EX32(s->user1_reg,
+                                                          SPI_USER1,
+                                                          ADDR_BITLEN));
+                t.addr = bswap32(s->addr_reg);
+            }
+
+            if (FIELD_EX32(s->user_reg, SPI_USER, MOSI)) {
+
+                t.data = &s->data_reg[0 + FIELD_EX32(s->user_reg,
+                                                     SPI_USER,
+                                                     MOSI_HIGHPART) * 8];
+                t.data_tx_bytes = bitlen_to_bytes(s->mosi_dlen_reg);
+                assert(t.data_tx_bytes <= 16 * 4);
+            }
+
+            if (FIELD_EX32(s->user_reg, SPI_USER, MISO)) {
+
+                t.data = &s->data_reg[0 + FIELD_EX32(s->user_reg,
+                                                     SPI_USER,
+                                                     MISO_HIGHPART) * 8];
+                t.data_rx_bytes = bitlen_to_bytes(s->miso_dlen_reg);
+            }
         }
         break;
     default:
@@ -315,11 +472,18 @@ static void esp32_spi_reset(DeviceState *dev)
     s->user1_reg = FIELD_DP32(s->user1_reg, SPI_USER1, DUMMY_CYCLELEN, 7);
     s->user2_reg = FIELD_DP32(0, SPI_USER2, COMMAND_BITLEN, 4);
     s->user2_reg = FIELD_DP32(s->user2_reg, SPI_USER2, COMMAND_VALUE, 0);
+    s->dma_outlink_reg = 0;
+    s->dma_conf_reg = 0;
     s->status_reg = 0;
+    s->clk_reg = 0x80003043;
 }
 
 static void esp32_spi_realize(DeviceState *dev, Error **errp)
 {
+    Esp32SpiState *s = ESP32_SPI(dev);
+    assert(s->soc_mr != NULL);
+
+    address_space_init(&s->dma_as, s->soc_mr, "ssi.esp32.spi.dma");
 }
 
 static void esp32_spi_init(Object *obj)
@@ -337,6 +501,8 @@ static void esp32_spi_init(Object *obj)
 }
 
 static Property esp32_spi_properties[] = {
+    DEFINE_PROP_LINK("soc_mr", Esp32SpiState, soc_mr, TYPE_MEMORY_REGION,
+                     MemoryRegion*),
     DEFINE_PROP_END_OF_LIST(),
 };
 

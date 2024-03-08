@@ -3,3 +3,7 @@ config STM32F2XX_ADC
 
 config MAX111X
     bool
+
+config ESP32_ADC
+    bool
+
