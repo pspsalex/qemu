@@ -191,7 +191,7 @@ static void esp32s3_ds_generate_signature(ESP32S3DsState *s)
 {
     uint32_t mode = ESP32S3_DS_MEM_BLK_SIZE / 4 - 1;
 
-    ESP32S3RsaClass *rsa_class = ESP32S3_RSA_GET_CLASS(s->rsa);
+    ESPRsaClass *rsa_class = ESP_RSA_GET_CLASS(s->rsa);
     rsa_class->rsa_exp_mod(s->rsa, mode, s->x_mem, s->y_mem, s->m_mem, s->z_mem, 0);
 
     // The DS peripheral resets the RSA peripheral once it has completed the respective operation.

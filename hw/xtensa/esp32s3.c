@@ -799,7 +799,7 @@ static void esp32s3_machine_init(MachineState *machine)
     {
         ss->ds.hmac = &ss->hmac;
         ss->ds.aes = &ss->aes;
-        ss->ds.rsa = &ss->rsa;
+        ss->ds.rsa = ESP_RSA(&ss->rsa);
         ss->ds.sha = &ss->sha;
         qdev_realize(DEVICE(&ss->ds), &ss->periph_bus, &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ss->ds), 0);

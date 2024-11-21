@@ -619,7 +619,7 @@ static void esp32c3_machine_init(MachineState *machine)
     {
         ms->ds.hmac = &ms->hmac;
         ms->ds.aes = &ms->aes;
-        ms->ds.rsa = &ms->rsa;
+        ms->ds.rsa = ESP_RSA(&ms->rsa);
         ms->ds.sha = &ms->sha;
         qdev_realize(DEVICE(&ms->ds), &ms->periph_bus, &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->ds), 0);
