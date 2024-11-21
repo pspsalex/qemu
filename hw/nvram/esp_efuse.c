@@ -21,7 +21,7 @@
 #include "hw/irq.h"
 #include "hw/qdev-properties.h"
 #include "hw/qdev-properties-system.h"
-#include "hw/nvram/esp32c3_efuse.h"
+#include "hw/nvram/esp_efuse.h"
 
 
 #define EFUSE_DEBUG    0
@@ -557,7 +557,7 @@ static bool virt_efuse_get_key(ESPEfuseState *s, EfuseBlocksIdx efuse_block_num,
 
     /* Interpret the key0 block address as an array of bytes */
     uint8_t* block_key0 = (uint8_t*) &s->efuses_internal.blocks.rd_key0_data0;
-    memcpy(efuse_key, block_key0 + (efuse_block_num - EFUSE_BLOCK_KEY0) * 8, 32);
+    memcpy(efuse_key, block_key0 + (efuse_block_num - EFUSE_BLOCK_KEY0) * 32, 32);
     return true;
 }
 
