@@ -1,7 +1,7 @@
 /*
- * ESP32-C3 eFuse emulation
+ * eFuse emulation for recent ESP32-series chip (ESP32-S3 and newer)
  *
- * Copyright (c) 2023 Espressif Systems (Shanghai) Co. Ltd.
+ * Copyright (c) 2024 Espressif Systems (Shanghai) Co. Ltd.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 or
