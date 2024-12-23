@@ -46,13 +46,17 @@ cd build
 
 
 # Prepare the files
+## SD Card Image
 ```bash
-# create 256MB "image.bin" SD card image
-dd if=/dev/zero of=image.bin bs=1M count=256
+# create 256MB "sd-image.bin" SD card image
+dd if=/dev/zero of=sd-image.bin bs=1M count=256
 
 # create FAT32 filesystem
-mkfs.vfat image.bin
+mkfs.vfat sd-image.bin
+```
 
+## E-Fuse
+```
 # dump efuse from an ESP32
 espefuse.py dump --file_name esp32-efuse-block.bin
 
@@ -80,14 +84,14 @@ More info on using `espufse.py` can be found in the [IDF documentation](https://
 # Run the stuff
 ```bash
 # Set rotation to 90 if the app is running in portrait mode
-./build/qemu-system-xtensa -m 4M  -machine esp32 -drive file=merged_qemu.bin,if=mtd,format=raw -global driver=timer.esp32.timg,property=wdt_disable,value=true  -serial mon:stdio  -drive id=mysd,if=sd,format=raw,file=image.bin,bus=0,unit=1 -drive id=efuse,if=none,format=raw,file=esp32-efuse.bin -global driver=it8951e,property=rotation,value=0
+./build/qemu-system-xtensa -m 4M  -machine m5paper -drive file=merged_qemu.bin,if=mtd,format=raw -global driver=timer.esp32.timg,property=wdt_disable,value=true  -serial mon:stdio  -drive id=mysd,if=sd,format=raw,file=sd-image.bin,bus=0,unit=1 -drive id=efuse,if=none,format=raw,file=esp32-efuse.bin -global driver=it8951e,property=rotation,value=0
 ```
 
 
 # Allow debugging of the emulated app:
 Starts the emulator paused (`-S`), with support for remote gdb on TCP port 1234 (`-s`):
 ```bash
-./build/qemu-system-xtensa -m 4M  -machine esp32 -drive file=merged_qemu.bin,if=mtd,format=raw -global driver=timer.esp32.timg,property=wdt_disable,value=true  -serial mon:stdio  -drive id=mysd,if=sd,format=raw,file=image.bin,bus=0,unit=1 -drive id=efuse,if=none,format=raw,file=esp32-efuse.bin -global driver=it8951e,property=rotation,value=0 -S -s
+./build/qemu-system-xtensa -m 4M  -machine m5paper -drive file=merged_qemu.bin,if=mtd,format=raw -global driver=timer.esp32.timg,property=wdt_disable,value=true  -serial mon:stdio  -drive id=mysd,if=sd,format=raw,file=sd-image.bin,bus=0,unit=1 -drive id=efuse,if=none,format=raw,file=esp32-efuse.bin -global driver=it8951e,property=rotation,value=0 -S -s
 ```
 
 Start the debugger:
@@ -105,15 +109,24 @@ c # start execution (qemu was started paused)
 ```
 
 
-# Build with platformio / pio
+#  Build with platformio / pio
 ```bash
+# Enter your platformio project folder
+cd project
+
+# Build the software
 pio run
+
+# Merge the compiled files into a merged_qemu.bin file. Adapt the parameters 
+# flash size, speed, mode) to your board
 cd .pio/build/m5stack-fire
-~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32 merge_bin -o merged_qemu.bin --flash_mode dio --flash_freq 40m --flash_size 16MB --fill-flash-size 16MB   0x1000 ../../../../M5EPD_Calculator/.pio/build/m5stack-fire/bootloader.bin   0x8000 partitions.bin   0x10000 firmware.bin
+~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32 merge_bin -o merged_qemu.bin --flash_mode dio --flash_freq 40m --flash_size 16MB --fill-flash-size 16MB   0x1000 bootloader.bin   0x8000 partitions.bin   0x10000 firmware.bin
 ```
 
+Note: if you have `esptool.py` in your path, you can use that as well, or any other tool that can generate the merged image.
 
-# QEMU coding rule checked
+
+# QEMU coding rules check
 ```bash
 # Compare current working directory to latest commit in the branch
 git diff HEAD | scripts/checkpatch.pl --no-signoff -q -
