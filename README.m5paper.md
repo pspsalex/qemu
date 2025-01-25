@@ -96,11 +96,12 @@ Starts the emulator paused (`-S`), with support for remote gdb on TCP port 1234 
 
 Start the debugger:
 ```bash
-~/Proiecte/Kits/xtensa-esp-elf-gdb/bin/xtensa-esp32-elf-gdb firmware.elf
+xtensa-esp32-elf-gdb firmware.elf
 ```
 
 Then use gdb. Examples:
 ```
+target remote :1234
 b whatever # set breakpoint at whatever function
 rwatch *0x3ff48000 # watch for read access at specified address (breaks execution)
 b file.c:1234 # set breakpoint at specific place in source code
@@ -129,8 +130,5 @@ Note: if you have `esptool.py` in your path, you can use that as well, or any ot
 # QEMU coding rules check
 ```bash
 # Compare current working directory to latest commit in the branch
-git diff HEAD | scripts/checkpatch.pl --no-signoff -q -
-
-# Compare current working directory to previous commit in the branch
 git diff HEAD | scripts/checkpatch.pl --no-signoff -q -
 ```
