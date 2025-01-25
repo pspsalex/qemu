@@ -95,7 +95,7 @@ struct GT911State {
 
 static void gt911_set_coords(GT911State *s, int x, int y)
 {
-    s->mem[0x814e] = s->pressed ? 0b10000001 : 0;
+    s->mem[0x814e] = s->pressed ? 0x81 : 0x80;
     s->mem[0x8150] = (uint8_t)(x & 0xFF);
     s->mem[0x8151] = (uint8_t)((x >> 8) & 0xFF);
     s->mem[0x8152] = (uint8_t)(y & 0xFF);
@@ -285,7 +285,7 @@ static void gt911_set_register16b(GT911State *s, uint16_t address,
                                   uint16_t value)
 {
     gt911_set_register8b(s, address, (uint8_t)(value & 0x00FFu));
-    gt911_set_register8b(s, address, (uint8_t)(value >> 8));
+    gt911_set_register8b(s, address + 1, (uint8_t)(value >> 8));
 }
 
 
@@ -392,8 +392,11 @@ static void gt911_realize(DeviceState *dev, Error **errp)
     qdev_init_gpio_out_named(dev, &s->pin, GT911_GPIO_INT, 1);
 
     if (s->autores) {
-        int xres = qemu_console_get_width(NULL, s->xres);
-        int yres = qemu_console_get_height(NULL, s->yres);
+        QemuConsole *con = qemu_console_lookup_default();
+        int xres = qemu_console_get_width(con, s->xres);
+        int yres = qemu_console_get_height(con, s->yres);
+        DPRINTL(3, "Set resolution to %d x %d\n", xres, yres);
+
         s->vp_width = xres;
         s->vp_height = yres;
         if (((s->viewport_rotation + s->rotation_offset) == 0) ||
@@ -465,4 +468,3 @@ static void gt911_register_types(void)
 }
 
 type_init(gt911_register_types)
-
