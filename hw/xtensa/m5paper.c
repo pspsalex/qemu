@@ -41,6 +41,8 @@
 #include "net/net.h"
 #include "elf.h"
 
+#include "qapi/visitor.h"
+
 #include "hw/input/m5paper-btn.h"
 
 #define ESP32_SOC(obj) OBJECT_CHECK(Esp32SocState, (obj), TYPE_ESP32_SOC)
@@ -52,7 +54,7 @@ typedef struct Esp32MachineState Esp32MachineState;
 
 typedef struct M5PaperMachineState {
     Esp32MachineState parent_obj;
-
+    uint8_t gt911_address;
 } M5PaperMachineState;
 
 #define TYPE_M5PAPER_MACHINE MACHINE_TYPE_NAME("m5paper")
@@ -131,7 +133,8 @@ static void m5paper_machine_init(MachineState *machine)
     DeviceState *i2c_master = DEVICE(&s->i2c[0]);
     I2CBus *i2c_bus = I2C_BUS(qdev_get_child_bus(i2c_master, "i2c"));
 
-    I2CSlave *gt911 = i2c_slave_create_simple(i2c_bus, "gt911", 0x14);
+    I2CSlave *gt911 = i2c_slave_create_simple(i2c_bus, "gt911",
+        pms->gt911_address);
 
     object_property_set_int(OBJECT(gt911), "rotation",
                             object_property_get_int(OBJECT(display), "rotation",
@@ -173,7 +176,28 @@ static void m5paper_machine_init(MachineState *machine)
 
 }
 
+static void m5paper_get_gt911_address(Object *obj, Visitor *v,
+                                            const char *name, void *opaque,
+                                            Error **errp)
+{
+    M5PaperMachineState *pms = M5PAPER_MACHINE(obj);
+    uint8_t value = pms->gt911_address;
 
+    visit_type_uint8(v, name, &value, errp);
+}
+
+static void m5paper_set_gt911_address(Object *obj, Visitor *v,
+                                            const char *name, void *opaque,
+                                            Error **errp)
+{
+    M5PaperMachineState *pms = M5PAPER_MACHINE(obj);
+    uint8_t value;
+
+    if (!visit_type_uint8(v, name, &value, errp)) {
+        return;
+    }
+    pms->gt911_address = value;
+}
 /* Initialize machine type */
 static void m5paper_machine_class_init(ObjectClass *oc, void *data)
 {
@@ -184,12 +208,26 @@ static void m5paper_machine_class_init(ObjectClass *oc, void *data)
     mc->default_cpus = 2;
     mc->default_ram_size = 0;
     mc->fixup_ram_size = esp32_fixup_ram_size;
+
+    object_class_property_add(oc, "gt911-address", "uint8",
+        m5paper_get_gt911_address, m5paper_set_gt911_address,
+        NULL, NULL);
+    object_class_property_set_description(oc, "gt911-address",
+        "I2C address of the GT911 touchscreen. Usually 0x14 or 0x5D.");
+
+}
+
+static void m5paper_machine_instance_init(Object *o)
+{
+    M5PaperMachineState *pms = M5PAPER_MACHINE(o);
+    pms->gt911_address = 0x14;
 }
 
 static const TypeInfo m5paper_info = {
     .name = TYPE_M5PAPER_MACHINE,
     .parent = TYPE_MACHINE,
     .instance_size = sizeof(M5PaperMachineState),
+    .instance_init = m5paper_machine_instance_init,
     .class_init = m5paper_machine_class_init,
 };
 
@@ -199,4 +237,3 @@ static void m5paper_machine_type_init(void)
 }
 
 type_init(m5paper_machine_type_init);
-
