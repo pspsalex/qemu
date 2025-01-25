@@ -166,8 +166,8 @@ struct it8951e_device_info_t it8951e_device_info = {
     .panelHeight = __bswap_constant_16(IT8951E_HEIGHT),
     .imgBufAddrH = __bswap_constant_16(IT8951E_FB_ADDRESS >> 16),
     .imgBufAddrL = __bswap_constant_16(IT8951E_FB_ADDRESS & 0x0000FFFF),
-    .fwVersion = "0123456789ABCDEF",
-    .lutVersion = "fedcbaGHIJKLMNOP"
+    .fwVersion = "0123456789ABCDE",
+    .lutVersion = "fedcbaGHIJKLMNO"
 };
 
 
@@ -475,9 +475,10 @@ static void it8951e_msm_wait_ld_area_data(it8951e_state *s,
 {
     uint16_t data;
 
-    DPRINTF("MSM: Process event %s in MSM state %s\n",
+    DPRINTF("MSM: Process event %s in MSM state %s (%d recv out of %d)\n",
             it8951e_msm_event_names[event],
-            __func__);
+            __func__,
+            s->transferred_bytes, s->needed_bytes);
 
     switch (event) {
     case IT8951E_MSM_EV_BEGIN_WRITE:
@@ -501,6 +502,7 @@ static void it8951e_msm_wait_ld_area_data(it8951e_state *s,
         DPRINTF("MSM: LD_AREA_DATA --> EV_COMMAND(0x%04x)\n", data);
         switch (data) {
         case IT8951E_CMD_LD_IMG_END:
+            DPRINTF("MSM: >> LD_IMG_END\n");
             s->state = it8951e_msm_standby;
             s->redraw = 1;
             break;
@@ -713,7 +715,7 @@ static void it8951e_msm_wait_dpy_buf_area_parm(it8951e_state *s,
 
     case IT8951E_MSM_EV_TX_DONE:
         DPRINTF("MSM:    0x0037: {x: %d, y: %d, w: %d, h: %d, mode: %d,"
-            " ptr: 0x%08x\n",
+            " ptr: 0x%08x}\n",
             (s->spi_buffer[0] << 8) | (s->spi_buffer[1]),
             (s->spi_buffer[2] << 8) | (s->spi_buffer[3]),
             (s->spi_buffer[4] << 8) | (s->spi_buffer[5]),
@@ -870,15 +872,18 @@ static void it8951e_msm_standby(it8951e_state *s,
         DPRINTF("MSM: STANDBY --> EV_COMMAND(0x%04x)\n", data);
         switch (data) {
         case IT8951E_CMD_SYS_RUN:
+            DPRINTF("MSM: >> SYS_RUN (NOP)\n");
             s->state = it8951e_msm_standby;
             break;
 
         case IT8951E_CMD_SLEEP:
+            DPRINTF("MSM: >> SLEEP (NOP)\n");
             s->state = it8951e_msm_standby;
             break;
 
         case IT8951E_CMD_REG_RD:
             /* 6000 00 10 // 0000 12 24 // 1000 xx xx RR RR */
+            DPRINTF("MSM: >> REG_RD\n");
             s->state = it8951e_msm_wait_reg_rd_parm;
             it8951e_readb(s, 2);
             break;
@@ -890,50 +895,61 @@ static void it8951e_msm_standby(it8951e_state *s,
              * 6000 00 11 // 0000 02 08 // 0000 56 78
              * 6000 00 21 // 0000 01 21 00 00 00 00 02 1c 03 c0 // 0000 ff ff...
              */
+            DPRINTF("MSM: >> REG_WR\n");
             s->state = it8951e_msm_wait_reg_wr_parm;
             it8951e_readb(s, 2);
             break;
 
         case IT8951E_CMD_MEM_BST_RD_T:
+            DPRINTF("MSM: >> MEM_BST_RD_T>\n");
             s->state = it8951e_msm_wait_mem_bst_rd_t_parm;
             break;
 
         case IT8951E_CMD_MEM_BST_RD_S:
+            DPRINTF("MSM: >> MEM_BST_RD_S\n");
             s->state = it8951e_msm_standby;
             break;
 
         case IT8951E_CMD_MEM_BST_WR:
+            DPRINTF("MSM: >> MEM_BST_WR\n");
             s->state = it8951e_msm_wait_mem_bst_wr_parm;
             break;
 
         case IT8951E_CMD_MEM_BST_END:
+            DPRINTF("MSM: >> MEM_BST_END\n");
             s->state = it8951e_msm_standby;
             break;
 
         case IT8951E_CMD_LD_IMG:
+            DPRINTF("MSM: >> LD_IMG\n");
             s->state = it8951e_msm_wait_ld_img_parm;
             break;
 
         case IT8951E_CMD_LD_AREA:
+            DPRINTF("MSM: >> LD_AREA\n");
             s->state = it8951e_msm_wait_ld_area_parm;
             it8951e_readb(s, 10);
             break;
 
         case IT8951E_CMD_LD_IMG_END:
+            DPRINTF("MSM: >> LD_IMG_END\n");
             s->state = it8951e_msm_standby;
             break;
 
         case IT8951E_CMD_DPY_BUF_AREA:
+            DPRINTF("MSM: >> DPY_BUF_AREA\n");
             s->state = it8951e_msm_wait_dpy_buf_area_parm;
             it8951e_readb(s, 14);
             break;
 
         case IT8951E_CMD_SET_VCOM:
+            DPRINTF("MSM: >> SET_VCOM\n");
             s->state = it8951e_msm_wait_set_vcom_parm;
             it8951e_readb(s, 4);
             break;
 
         case IT8951E_CMD_GET_DEVICE_INFO:
+            DPRINTF("MSM: >> GET_DEVICE_INFO\n");
             s->output_bytes = sizeof(it8951e_device_info);
             memcpy(s->spi_out_buffer, &it8951e_device_info,
                     sizeof(it8951e_device_info));
@@ -1315,7 +1331,12 @@ static void it8951e_gpio_epd_power(void *opaque, int n, int level)
     }
     s->epd_power = level ? IT8951E_POWER_ON : IT8951E_POWER_OFF;
 
-    qemu_set_irq(s->gpio_hrdy, level && (s->main_power == IT8951E_POWER_ON));
+    bool result = (s->epd_power == IT8951E_POWER_ON) &&
+                  (s->main_power == IT8951E_POWER_ON);
+    DPRINTF("HRDY: level=%d, power=%d, result=%d\n", level, s->main_power,
+       result);
+
+    qemu_set_irq(s->gpio_hrdy, result);
 }
 
 static int it8951e_post_load(void *opaque, int version_id)
@@ -1412,9 +1433,11 @@ static void it8951e_realize(SSIPeripheral *d, Error **errp)
         break;
     }
 
+    DPRINTF("Resizing console to %d x %d\n", width, height);
     qemu_console_resize(s->con, width, height);
 
     qdev_init_gpio_out_named(dev, &s->gpio_hrdy, IT8951E_GPIO_HRDY, 1);
+    DPRINTF("HRDY: result=1\n");
 
     qdev_init_gpio_in_named(dev, it8951e_gpio_epd_power,
                             IT8951E_GPIO_EPD_POWER, 1);
@@ -1458,4 +1481,3 @@ static void it8951e_register_types(void)
 }
 
 type_init(it8951e_register_types)
-
