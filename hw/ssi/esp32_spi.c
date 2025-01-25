@@ -119,6 +119,9 @@ static uint64_t esp32_spi_read(void *opaque, hwaddr addr, unsigned int size)
         break;
     case A_SPI_CMD:
         break;
+    case A_SPI_DMA_IN_LINK:
+        r = s->dma_inlink_reg;
+        break;
     case A_SPI_DMA_OUT_LINK:
         r = s->dma_outlink_reg ;
         break;
@@ -181,6 +184,10 @@ static void esp32_spi_write(void *opaque, hwaddr addr,
         esp32_spi_do_command(s, value);
         break;
 
+    case A_SPI_DMA_IN_LINK:
+        s->dma_inlink_reg = value;
+        break;
+
     case A_SPI_DMA_OUT_LINK:
         s->dma_outlink_reg = value;
         break;
@@ -188,7 +195,6 @@ static void esp32_spi_write(void *opaque, hwaddr addr,
     case A_SPI_DMA_CONF:
         s->dma_conf_reg = value;
         break;
-
     }
 }
 
@@ -263,6 +269,24 @@ static bool esp32_spi_dma_read_guest(Esp32SpiState *s, uint32_t addr,
     return res == MEMTX_OK;
 }
 
+/**
+ * @brief Read and write arbitrary data from and to the guest machine
+ *
+ * @param s ESP32 SPI state structure
+ * @param addr Guest machine address
+ * @param data output ptr
+ * @param len bytes to read
+ *
+ * @returns true if the transfer was a success, false else
+ */
+static bool esp32_spi_dma_write_guest(Esp32SpiState *s, uint32_t addr,
+                                     void *data, uint32_t len)
+{
+    MemTxResult res = dma_memory_write(&s->dma_as, addr, data, len,
+                                      MEMTXATTRS_UNSPECIFIED);
+    return res == MEMTX_OK;
+}
+
 typedef struct EspDmaLinkedList {
     union {
         struct {
@@ -297,25 +321,50 @@ typedef struct EspDmaLinkedList {
 
 static void esp32_spi_do_dma(Esp32SpiState *s, Esp32SpiTransaction *t)
 {
-    uint32_t descriptorAddress = FIELD_EX32(s->dma_outlink_reg,
-                                            SPI_DMA_OUT_LINK, OUTLINK_ADDR);
 
-    EspDmaLinkedList dmall;
+    t->data_tx_bytes = 0;
+    t->data_rx_bytes = 0;
+    EspDmaLinkedList inputll;
 
-    assert(esp32_spi_dma_read_guest(s, descriptorAddress | 0x3ff00000,
-                                    &dmall, 12));
+    if (FIELD_EX32(s->dma_outlink_reg, SPI_DMA_OUT_LINK, OUTLINK_START)) {
+        uint32_t outputDescriptorAddress = FIELD_EX32(s->dma_outlink_reg,
+                                                SPI_DMA_OUT_LINK, OUTLINK_ADDR);
 
-    assert(dmall.next_addr == 0);
+        EspDmaLinkedList outputll;
+
+        assert(esp32_spi_dma_read_guest(s, outputDescriptorAddress | 0x3ff00000,
+                                        &outputll, sizeof(outputll)));
+
+        assert(outputll.next_addr == 0);
+        t->data_tx_bytes = outputll.config.length;
+        t->data = malloc(t->data_tx_bytes);
+        assert(esp32_spi_dma_read_guest(s, outputll.buf_addr, t->data,
+                                        outputll.config.length));
+    }
+
+    if (FIELD_EX32(s->dma_inlink_reg, SPI_DMA_IN_LINK, INLINK_START) &&
+        FIELD_EX32(s->dma_inlink_reg, SPI_DMA_IN_LINK, INLINK_ADDR))
+    {
+        uint32_t inputDescriptorAddress = FIELD_EX32(s->dma_inlink_reg,
+                                                SPI_DMA_IN_LINK, INLINK_ADDR);
+
+        assert(esp32_spi_dma_read_guest(s, inputDescriptorAddress | 0x3ff00000,
+                                        &inputll, sizeof(inputll)));
+
+        assert(inputll.next_addr == 0);
+        t->data_rx_bytes = inputll.config.length;
+    }
 
     t->addr_bytes = 0;
     t->cmd_bytes = 0;
-    t->data_tx_bytes = dmall.config.length;
-    t->data = malloc(t->data_tx_bytes);
-
-    assert(esp32_spi_dma_read_guest(s, dmall.buf_addr, t->data,
-                                    dmall.config.length));
     esp32_spi_transaction(s, t);
 
+    if (FIELD_EX32(s->dma_inlink_reg, SPI_DMA_IN_LINK, INLINK_START) &&
+        FIELD_EX32(s->dma_inlink_reg, SPI_DMA_IN_LINK, INLINK_ADDR))
+    {
+        esp32_spi_dma_write_guest(s, inputll.buf_addr, t->data,
+            inputll.config.length);
+    }
     free(t->data);
 
     s->dma_outlink_reg = FIELD_DP32(s->dma_outlink_reg,
@@ -408,8 +457,10 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
 
     case R_SPI_CMD_USR_MASK:
         maybe_encrypt_data(s);
-        if (FIELD_EX32(s->dma_outlink_reg, SPI_DMA_OUT_LINK, OUTLINK_START) ||
-            FIELD_EX32(s->dma_outlink_reg, SPI_DMA_OUT_LINK, OUTLINK_START)) {
+        if ((FIELD_EX32(s->dma_outlink_reg, SPI_DMA_OUT_LINK, OUTLINK_START) &&
+             FIELD_EX32(s->dma_outlink_reg, SPI_DMA_OUT_LINK, OUTLINK_ADDR)) ||
+            (FIELD_EX32(s->dma_inlink_reg, SPI_DMA_IN_LINK, INLINK_START) &&
+            FIELD_EX32(s->dma_inlink_reg, SPI_DMA_IN_LINK, INLINK_ADDR))) {
             esp32_spi_do_dma(s, &t);
             return;
         } else {

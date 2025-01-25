@@ -31,6 +31,7 @@ typedef struct Esp32SpiState {
     uint32_t miso_dlen_reg;
     uint32_t pin_reg;
     uint32_t clk_reg;
+    uint32_t dma_inlink_reg;
     uint32_t dma_outlink_reg;
     uint32_t dma_conf_reg;
     uint32_t data_reg[ESP32_SPI_BUF_WORDS];
@@ -111,6 +112,13 @@ REG32(SPI_DMA_OUT_LINK, 0x104)
     FIELD(SPI_DMA_OUT_LINK, OUTLINK_STOP, 28, 1)
     FIELD(SPI_DMA_OUT_LINK, OUTLINK_START, 29, 1)
     FIELD(SPI_DMA_OUT_LINK, OUTLINK_RESTART, 30, 1)
+
+REG32(SPI_DMA_IN_LINK, 0x108)
+    FIELD(SPI_DMA_IN_LINK, INLINK_ADDR, 0, 20)
+    FIELD(SPI_DMA_IN_LINK, INLINK_AUTO_RET, 20, 1)
+    FIELD(SPI_DMA_IN_LINK, INLINK_STOP, 28, 1)
+    FIELD(SPI_DMA_IN_LINK, INLINK_START, 29, 1)
+    FIELD(SPI_DMA_IN_LINK, INLINK_RESTART, 30, 1)
 
 REG32(SPI_DMA_CONF, 0x100)
 
