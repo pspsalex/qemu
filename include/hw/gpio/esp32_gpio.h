@@ -4,6 +4,10 @@
 #include "hw/hw.h"
 #include "hw/registerfields.h"
 
+#define ESP32_GPIO_IOMUX_OUT "esp32-gpio-iomux-out"
+#define ESP32_GPIO_IOMUX_IN "esp32-gpio-iomux-in"
+
+
 #define TYPE_ESP32_GPIO "esp32.gpio"
 #define ESP32_GPIO(obj)             OBJECT_CHECK(Esp32GpioState, (obj), TYPE_ESP32_GPIO)
 #define ESP32_GPIO_GET_CLASS(obj)   OBJECT_GET_CLASS(Esp32GpioClass, obj, TYPE_ESP32_GPIO)
@@ -59,6 +63,7 @@ REG32(GPIO_PIN0_REG, 0x0088)
 
 
 
+REG32(GPIO_FUNC0_IN_SEL_CFG_REG, 0x0130)
 REG32(GPIO_FUNC0_OUT_SEL_CFG_REG, 0x0530)
 
 #define ESP32_STRAP_MODE_FLASH_BOOT 0x12
@@ -69,7 +74,9 @@ typedef struct Esp32GpioState {
 
     MemoryRegion iomem;
     qemu_irq irq;
-    qemu_irq gpio_irq[48];
+    qemu_irq gpio_irq[49];
+    qemu_irq iomux_in[256];
+    uint32_t iomux_out[256];
     uint32_t strap_mode;
     uint64_t gpio_val;
     uint64_t gpio_sr;
@@ -82,8 +89,9 @@ typedef struct Esp32GpioState {
     uint64_t gpio_pro_nmi_mask;
     uint64_t gpio_app_int_mask;
     uint64_t gpio_app_nmi_mask;
-    uint32_t gpio_cfg[48];
-    uint32_t gpio_per[256];
+    uint32_t gpio_cfg[49];
+    uint32_t gpio_per[49];
+    uint32_t gpio_per_in[256];
 } Esp32GpioState;
 
 typedef struct Esp32GpioClass {

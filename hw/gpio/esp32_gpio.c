@@ -32,8 +32,13 @@ static uint64_t esp32_gpio_read(void *opaque, hwaddr addr, unsigned int size)
         r = s->gpio_cfg[(addr - A_GPIO_PIN0_REG) / 4];
         break;
 
+    case A_GPIO_FUNC0_IN_SEL_CFG_REG ...
+         A_GPIO_FUNC0_IN_SEL_CFG_REG + 255 * 4:
+        r = s->gpio_per_in[(addr - A_GPIO_FUNC0_IN_SEL_CFG_REG) / 4];
+        break;
+
     case A_GPIO_FUNC0_OUT_SEL_CFG_REG ...
-         A_GPIO_FUNC0_OUT_SEL_CFG_REG + 256 * 4:
+         A_GPIO_FUNC0_OUT_SEL_CFG_REG + 39 * 4:
         r = s->gpio_per[(addr - A_GPIO_FUNC0_OUT_SEL_CFG_REG) / 4];
         break;
 
@@ -248,8 +253,13 @@ static void esp32_gpio_write(void *opaque, hwaddr addr,
     value = value & MASK_KEEP_L32;
 
     switch (addr) {
-    case A_GPIO_PIN0_REG ... A_GPIO_PIN0_REG + 47 * 4:
+    case A_GPIO_PIN0_REG ... A_GPIO_PIN0_REG + 39 * 4:
         esp32_gpio_pin_update(s, (addr - A_GPIO_PIN0_REG) / 4, value);
+        break;
+
+    case A_GPIO_FUNC0_IN_SEL_CFG_REG ...
+         A_GPIO_FUNC0_IN_SEL_CFG_REG + 255 * 4:
+        s->gpio_per_in[(addr - A_GPIO_FUNC0_IN_SEL_CFG_REG) / 4] = value;
         break;
 
     case A_GPIO_FUNC0_OUT_SEL_CFG_REG ...
@@ -364,6 +374,10 @@ static void esp32_gpio_reset(DeviceState *dev)
 {
 }
 
+static void esp32_gpio_peripheral_set(void *opaque, int n, int level)
+{
+}
+
 
 static void esp32_gpio_realize(DeviceState *dev, Error **errp)
 {
@@ -371,6 +385,16 @@ static void esp32_gpio_realize(DeviceState *dev, Error **errp)
 
     qdev_init_gpio_out(dev, &s->gpio_irq[0], 48);
     qdev_init_gpio_in(dev, esp32_gpio_pull, 48);
+
+    /*
+     * IOMUX_OUT: sends signal out of the device, based on input from
+     * the peripheral
+     */
+    qdev_init_gpio_in_named(dev, esp32_gpio_peripheral_set,
+        ESP32_GPIO_IOMUX_OUT, 229);
+
+    /* IOMUX_IN: receives signal from outside, and triggers the peripheral */
+    qdev_init_gpio_out_named(dev, &s->iomux_in[0], ESP32_GPIO_IOMUX_IN, 229);
 }
 
 static void esp32_gpio_init(Object *obj)
@@ -390,8 +414,10 @@ static void esp32_gpio_init(Object *obj)
 }
 
 static Property esp32_gpio_properties[] = {
-    /* The strap_mode needs to be explicitly set in the instance init, thus, set
-     * the default value to 0. */
+    /*
+     * The strap_mode needs to be explicitly set in the instance init, thus,
+     * set the default value to 0.
+     */
     DEFINE_PROP_UINT32("strap_mode", Esp32GpioState, strap_mode, 0),
     DEFINE_PROP_END_OF_LIST(),
 };
