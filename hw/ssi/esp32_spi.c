@@ -342,6 +342,7 @@ static void esp32_spi_do_dma(Esp32SpiState *s, Esp32SpiTransaction *t)
                                         outputll.config.length));
     }
 
+    int rx_bytes = 0;
     if (FIELD_EX32(s->dma_inlink_reg, SPI_DMA_IN_LINK, INLINK_START) &&
         FIELD_EX32(s->dma_inlink_reg, SPI_DMA_IN_LINK, INLINK_ADDR))
     {
@@ -352,7 +353,10 @@ static void esp32_spi_do_dma(Esp32SpiState *s, Esp32SpiTransaction *t)
                                         &inputll, sizeof(inputll)));
 
         assert(inputll.next_addr == 0);
-        t->data_rx_bytes = inputll.config.length;
+        rx_bytes = MIN(inputll.config.size, inputll.config.length ?
+                                                inputll.config.length :
+                                                t->data_tx_bytes);
+        t->data_rx_bytes = rx_bytes;
     }
 
     t->addr_bytes = 0;
@@ -363,7 +367,7 @@ static void esp32_spi_do_dma(Esp32SpiState *s, Esp32SpiTransaction *t)
         FIELD_EX32(s->dma_inlink_reg, SPI_DMA_IN_LINK, INLINK_ADDR))
     {
         esp32_spi_dma_write_guest(s, inputll.buf_addr, t->data,
-            inputll.config.length);
+            rx_bytes);
     }
     free(t->data);
 
