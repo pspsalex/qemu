@@ -249,6 +249,7 @@ static void *rcu_read_stress_test(void *arg)
     long long n_reads_local = 0;
     long long rcu_stress_local[RCU_STRESS_PIPE_LEN + 1] = { 0 };
     volatile int garbage = 0;
+    (void) garbage;
 
     rcu_register_thread();
 

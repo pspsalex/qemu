@@ -746,7 +746,7 @@ vubr_run(VubrDev *dev)
 static int
 vubr_parse_host_port(const char **host, const char **port, const char *buf)
 {
-    char *p = strchr(buf, ':');
+    char *p = (char*)strchr(buf, ':');
 
     if (!p) {
         return -1;

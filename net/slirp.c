@@ -363,7 +363,7 @@ static void net_slirp_poll_notify(Notifier *notifier, void *data)
 
     switch (poll->state) {
     case MAIN_LOOP_POLL_FILL:
-        slirp_pollfds_fill(s->slirp, &poll->timeout,
+        slirp_pollfds_fill_socket(s->slirp, &poll->timeout,
                            net_slirp_add_poll, poll->pollfds);
         break;
     case MAIN_LOOP_POLL_OK:
