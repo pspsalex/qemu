@@ -53,5 +53,5 @@ config M5PAPER
     select SSI_SD
     select ESP32_ADC
     select M5PAPER_BTN
-
+    select PCF8563_RTC
 

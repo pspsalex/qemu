@@ -293,6 +293,7 @@ qos_test_ss.add(
   'tulip-test.c',
   'nvme-test.c',
   'pca9552-test.c',
+  'pcf8563-test.c',
   'pci-test.c',
   'pcnet-test.c',
   'sdhci-test.c',

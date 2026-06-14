@@ -28,6 +28,7 @@
 #include "hw/misc/ssi_psram.h"
 #include "hw/display/it8951e.h"
 #include "hw/input/gt911.h"
+#include "hw/rtc/pcf8563_rtc.h"
 #include "hw/sd/dwc_sdmmc.h"
 #include "core-esp32/core-isa.h"
 #include "qemu/datadir.h"
@@ -150,6 +151,9 @@ static void m5paper_machine_init(MachineState *machine)
                 qdev_get_gpio_in(DEVICE(&s->intmatrix), ETS_GPIO_INTR_SOURCE));
 
     qemu_set_irq(qdev_get_gpio_in(DEVICE(&s->gpio), 39), 1);
+
+    i2c_slave_create_simple(i2c_bus, TYPE_PCF8563, 0x51);
+
 
 
 
