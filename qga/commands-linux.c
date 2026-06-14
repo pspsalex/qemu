@@ -378,7 +378,8 @@ static bool build_guest_fsinfo_for_pci_dev(char const *syspath,
     int i, nhosts = 0, pcilen;
     GuestPCIAddress *pciaddr = disk->pci_controller;
     bool has_ata = false, has_host = false, has_tgt = false;
-    char *p, *q, *driver = NULL;
+    const char *p, *q;
+    char *driver = NULL;
     bool ret = false;
 
     p = strstr(syspath, "/devices/pci");
@@ -518,7 +519,7 @@ static bool build_guest_fsinfo_for_nonpci_virtio(char const *syspath,
                                                  Error **errp)
 {
     unsigned int tgt[3];
-    char *p;
+    const char *p;
 
     if (!strstr(syspath, "/virtio") || !strstr(syspath, "/block")) {
         g_debug("Unsupported virtio device '%s'", syspath);
@@ -550,7 +551,7 @@ static bool build_guest_fsinfo_for_ccw_dev(char const *syspath,
                                            Error **errp)
 {
     unsigned int cssid, ssid, subchno, devno;
-    char *p;
+    const char *p;
 
     p = strstr(syspath, "/devices/css");
     if (!p || sscanf(p + 12, "%*x/%x.%x.%x/%*x.%*x.%x/",

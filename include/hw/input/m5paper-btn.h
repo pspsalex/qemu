@@ -15,9 +15,6 @@ OBJECT_DECLARE_SIMPLE_TYPE(M5PaperBtnState, M5PAPER_BTN)
 struct M5PaperBtnState {
     SysBusDevice qdev;
 
-    bool pressed;
-    bool extended;
-
     qemu_irq btn_left;
     qemu_irq btn_right;
     qemu_irq btn_push;

@@ -451,11 +451,10 @@ static void esp32_adc_sar2_input_set(void *opaque, int line, int value)
     DEND();
 }
 
-
-static void esp32_adc_reset(DeviceState *dev)
+static void esp32_adc_reset(Object *obj, ResetType type)
 {
     DSTART();
-    Esp32AdcState *s = ESP32_ADC(dev);
+    Esp32AdcState *s = ESP32_ADC(obj);
 
     memset(s->regs, 0, sizeof(s->regs));
     s->regs[A_SENS_SAR_READ_CTRL_REG] = 0x92;
@@ -532,9 +531,12 @@ static void esp32_adc_init(Object *obj)
 
 static void esp32_adc_class_init(ObjectClass *object_class, void *data)
 {
+    ResettableClass *rc = RESETTABLE_CLASS(object_class);
     DeviceClass *dc = DEVICE_CLASS(object_class);
 
-    dc->reset = esp32_adc_reset;
+    rc->phases.enter = esp32_adc_reset;
+    rc->phases.hold = NULL;
+    rc->phases.exit = NULL;
     dc->vmsd = &vmstate_esp32_adc;
 
     device_class_set_props(dc, esp32_adc_properties);
@@ -554,4 +556,3 @@ static void esp32_adc_register_types(void)
 }
 
 type_init(esp32_adc_register_types)
-

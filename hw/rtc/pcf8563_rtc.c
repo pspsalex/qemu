@@ -612,7 +612,7 @@ static void pcf8563_init(Object *obj)
     set_alarm(s);
 }
 
-static void pcf8563_reset_hold(Object *obj)
+static void pcf8563_reset_hold(Object *obj, ResetType type)
 {
     Pcf8563State *s = PCF8563(obj);
 

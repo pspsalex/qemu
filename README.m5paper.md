@@ -44,7 +44,7 @@
 ```bash
 mkdir build
 cd build
-../configure --target-list=xtensa-softmmu --enable-gcrypt --enable-debug --disable-sanitizers --disable-strip --disable-user --disable-capstone --disable-vnc --prefix=/opt/esp-qemu --cc="ccache gcc"
+../configure --target-list=xtensa-softmmu --enable-gcrypt --enable-debug --disable-strip --disable-user --disable-capstone --disable-vnc --prefix=/opt/esp-qemu --cc="ccache gcc"
 ```
 
 

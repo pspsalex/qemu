@@ -21,7 +21,6 @@
 #include "hw/qdev-properties.h"
 #include "hw/input/m5paper-btn.h"
 
-
 #ifndef M5PAPER_BTN_DEBUG_LEVEL
 #define M5PAPER_BTN_DEBUG_LEVEL 0
 #endif
@@ -45,35 +44,27 @@
 #define DEND()   DPRINTL(4, "END\n")
 
 
-
-
-static void m5paper_btn_kbd_event(void *opaque, int keycode)
+static void m5paper_btn_kbd_event(DeviceState *dev, QemuConsole *src,
+                               InputEvent *evt)
 {
-    M5PaperBtnState *s = M5PAPER_BTN(opaque);
+    M5PaperBtnState *s = M5PAPER_BTN(dev);
 
-    if (keycode == 0xe0) {
-        s->extended = true;
-        return;
-    }
-
-    if (!s->extended) {
-        return;
-    }
+    const int qcode = qemu_input_key_value_to_qcode(evt->u.key.data->key);
 
     qemu_irq *irq = NULL;
     bool active_low = false;
-    switch (keycode & 0x7F) {
-    case 0x4B:
+    switch (qcode) {
+    case Q_KEY_CODE_LEFT:
         irq = &s->btn_left;
         active_low = s->btn_left_active_low;
         break;
 
-    case 0x4D:
+    case Q_KEY_CODE_RIGHT:
         irq = &s->btn_right;
         active_low = s->btn_right_active_low;
         break;
 
-    case 0x50:
+    case Q_KEY_CODE_UP:
         irq = &s->btn_push;
         active_low = s->btn_push_active_low;
         break;
@@ -83,35 +74,15 @@ static void m5paper_btn_kbd_event(void *opaque, int keycode)
     }
 
     if (irq != NULL) {
-        qemu_set_irq(*irq, (!(keycode & 0x80)) ^ active_low);
-    }
-    s->extended = false;
-}
-
-
-static void m5paper_btn_add_handler(M5PaperBtnState *s)
-{
-    if (s->kbd == NULL) {
-        s->kbd = qemu_add_kbd_event_handler(m5paper_btn_kbd_event, s);
+        qemu_set_irq(*irq, (!evt->u.key.data->down) ^ active_low);
     }
 }
-
-static int m5paper_btn_post_load(void *opaque, int version_id)
-{
-    M5PaperBtnState *s = M5PAPER_BTN(opaque);
-
-    m5paper_btn_add_handler(s);
-
-    return 0;
-}
-
 
 
 static const VMStateDescription vmstate_m5paper_btn = {
     .name = "M5Paper-btn",
     .version_id = 0,
     .minimum_version_id = 0,
-    .post_load = m5paper_btn_post_load,
     .fields = (VMStateField[]) {
         /* TODO: fields... */
         VMSTATE_END_OF_LIST()
@@ -119,22 +90,26 @@ static const VMStateDescription vmstate_m5paper_btn = {
 };
 
 
-static void m5paper_btn_reset(DeviceState *dev)
+static void m5paper_btn_reset(Object *obj, ResetType type)
 {
-    M5PaperBtnState *s = M5PAPER_BTN(dev);
-
-    s->pressed = false;
-
-    m5paper_btn_post_load(s, 0);
+    M5PaperBtnState *s = M5PAPER_BTN(obj);
 
     qemu_set_irq(s->btn_left, !s->btn_left_active_low);
     qemu_set_irq(s->btn_right, !s->btn_right_active_low);
     qemu_set_irq(s->btn_push, !s->btn_push_active_low);
 }
 
+static const QemuInputHandler m5paper_btn_keyboard_handler = {
+    .name  = "QEMU M5Paper Button",
+    .mask  = INPUT_EVENT_MASK_KEY,
+    .event = m5paper_btn_kbd_event,
+};
+
 static void m5paper_btn_realize(DeviceState *dev, Error **errp)
 {
     M5PaperBtnState *s = M5PAPER_BTN(dev);
+
+    qemu_input_handler_register(dev, &m5paper_btn_keyboard_handler);
 
     qdev_init_gpio_out_named(dev, &s->btn_left, M5PAPER_BTN_LEFT, 1);
     qdev_init_gpio_out_named(dev, &s->btn_right, M5PAPER_BTN_RIGHT, 1);
@@ -164,17 +139,19 @@ static void  m5paper_btn_init(Object *object)
     s->btn_left_active_low = false;
     s->btn_right_active_low = false;
     s->btn_push_active_low = false;
-
-    m5paper_btn_add_handler(s);
 }
 
 static void m5paper_btn_class_init(ObjectClass *klass, void *data)
 {
+    ResettableClass *rc = RESETTABLE_CLASS(klass);
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->realize = m5paper_btn_realize;
     dc->vmsd = &vmstate_m5paper_btn;
-    dc->reset = m5paper_btn_reset;
+
+    rc->phases.enter = NULL;
+    rc->phases.hold = m5paper_btn_reset;
+    rc->phases.exit = NULL;
 
     device_class_set_props(dc, m5paper_btn_properties);
 
@@ -195,4 +172,3 @@ static void m5paper_btn_register_types(void)
 }
 
 type_init(m5paper_btn_register_types)
-

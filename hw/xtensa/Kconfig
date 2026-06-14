@@ -44,9 +44,10 @@ config XTENSA_ESP32S3
     select DWC_SDMMC
     select TMP105
     select ESP_RGB
-    
+
 config M5PAPER
     bool
+    default y
     select XTENSA_ESP32
     select IT8951E
     select GT911
@@ -54,4 +55,3 @@ config M5PAPER
     select ESP32_ADC
     select M5PAPER_BTN
     select PCF8563_RTC
-

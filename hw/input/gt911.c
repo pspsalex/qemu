@@ -264,9 +264,9 @@ static int gt911_event(I2CSlave *i2c, enum i2c_event event)
     return 0;
 }
 
-static void gt911_reset(DeviceState *dev)
+static void gt911_reset(Object *obj, ResetType type)
 {
-    GT911State *s = GT911(dev);
+    GT911State *s = GT911(obj);
 
     s->pressed = false;
     s->ptr = 0;
@@ -441,12 +441,15 @@ static void gt911_init(Object *object)
 
 static void gt911_class_init(ObjectClass *klass, void *data)
 {
+    ResettableClass *rc = RESETTABLE_CLASS(klass);
     DeviceClass *dc = DEVICE_CLASS(klass);
     I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
 
     dc->realize = gt911_realize;
     dc->vmsd = &vmstate_gt911;
-    dc->reset = gt911_reset;
+    rc->phases.enter = NULL;
+    rc->phases.hold = gt911_reset;
+    rc->phases.exit = NULL;
     k->event = gt911_event;
     k->recv = gt911_tx;
     k->send = gt911_rx;
